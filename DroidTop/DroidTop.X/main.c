@@ -38,7 +38,16 @@ unsigned char  tick     = 0;
 unsigned char  txSlot   = 0;
 unsigned char  txEvent  = 0;
 unsigned char  state    = IDLE;
-unsigned char  MsgBuffer[10] = {0x55, 0xAA, 0xFF, 0xFF, 0xB0, 0x4F, 0x55, 0xAA, 0x01, 0x02};
+unsigned char  MsgBuffer[10] = {0x55,   // status - lsb
+                                0xAA,   // status - msb (spare for now)
+                                0x00,   // MyID - lsb
+                                0x34,   // MyID - msb
+                                0x00,   // robot 0 ID - lsb
+                                0x00,   // robot 0 ID - msb
+                                0x00,   // robot 1 ID - lsb
+                                0x00,   // robot 1 ID - msb
+                                0x07,   // LED setting R=bit2, G=bit1, B=bit0
+                                0x02};  // spare
 
 void interrupt OnlyOne_ISR(void)    // There is only one interrupt on this CPU
 {
@@ -181,7 +190,35 @@ void setup_cpu ( void )
 
 }
 
+void UpdateRGBled ()
+{
+    if ((MsgBuffer[8] & 0x04) == 0x04)
+    {
+       LEDR = 0;
+    }
+    else
+    {
+       LEDR = 1;
+    }
+    
+    if ((MsgBuffer[8] & 0x02) == 0x02)
+    {
+       LEDG = 0;
+    }
+    else
+    {
+       LEDG = 1;
+    }
 
+    if ((MsgBuffer[8] & 0x01) == 0x01)
+    {
+       LEDB = 0;
+    }
+    else
+    {
+       LEDB = 1;
+    }    
+}
 
 /*============================================================================*/
 
@@ -203,14 +240,15 @@ int main ( )
          // update timing parameters
          if (timercnt > 249)   // every 50 ms
          {
-              LEDR = ~LEDR;
-
+             // perform update task, e.g. the LED
+             UpdateRGBled ();
+             
             timercnt = 0;
             fiftymillisecs++;
             txSlot++;
 
              if (txSlot == 5)
-             {
+             {              
                txSlot = 0;
                txEvent = 1;
                }

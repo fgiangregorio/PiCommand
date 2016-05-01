@@ -18,6 +18,9 @@
 #define LEDG                   LATBbits.LATB3  // RB3 is green led
 #define LEDR                   LATBbits.LATB4  // RB4 is red led
 
+#define M1                      LATCbits.LATC0  // motor fet 1
+#define M2                      LATCbits.LATC1  // motor fet 2
+
 enum
 {
    IDLE
@@ -242,7 +245,7 @@ int main ( )
          if (timercnt > 249)   // every 50 ms
          {
              // perform update task, e.g. the LED
-             UpdateRGBled ();
+             //UpdateRGBled ();
              
             timercnt = 0;
             fiftymillisecs++;
@@ -252,9 +255,11 @@ int main ( )
              {              
                txSlot = 0;
                txEvent = 1;
+               LEDR = 1;
                }
              else
             {
+                 LEDR = 0;
                if (txSlot == 1)
                {
                   txEvent = 1;

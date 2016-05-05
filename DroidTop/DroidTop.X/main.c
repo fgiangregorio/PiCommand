@@ -12,7 +12,7 @@
 #pragma config FOSC=INTOSC
 #pragma config WDTE=OFF
 #pragma config BOREN=0x00
-#pragma config CLKOUTEN=1
+#pragma config CLKOUTEN=0
 
 #define LEDB                   LATBbits.LATB2  // RB2 is blue led
 #define LEDG                   LATBbits.LATB3  // RB3 is green led
@@ -164,7 +164,7 @@ void setup_cpu ( void )
    // PORT assignments
    TRISA = 0xAF;    
    TRISB = 0xC0;    
-   TRISC = 0x9E;    
+   TRISC = 0xF0;    // make lower 4 bits outputs   
    ANSELA = 0x3F;   // only RA0-RA4 are analog input
    ANSELB = 0x00;   // all digital signals
    ANSELC = 0x00;   // all digital signals
@@ -173,14 +173,14 @@ void setup_cpu ( void )
    OPTION_REGbits.PS     = 3 ;   // pre-scaler is set to 3, create 500kHz
    OPTION_REGbits.PSA    = 0 ;   // pre-scaler is assigned to Timer0
    OPTION_REGbits.TMR0CS = 0 ;
-   INTCONbits.TMR0IE     = 1 ;     // Enable Timer0 interrupt
+   //INTCONbits.TMR0IE     = 1 ;     // Enable Timer0 interrupt
 
    // Initialize Timer 2 ... General timing timer. @8MHz / 8 = 1Mhz
    PR2      = 46;   // 55=50, 50=53.19, 46=56.17kHz, 40=60.97, 35=66.66
    TMR2     = 0x0;
    TMR2IF   = 0;
    T2CON    = 0x04; // Timer2 on
-   TMR2IE   = 1;
+   //TMR2IE   = 1;
 
     EUSART_Initialize();
    //APFCON1bits.TXSEL = 0 ; // TX is on RC6
@@ -189,8 +189,8 @@ void setup_cpu ( void )
    //IOCCNbits.IOCCN7  = 1;   // select RC7 for falling edge detection
    //INTCONbits.IOCIE  = 1;   // enable IOC intrrupt
 
-   INTCONbits.PEIE   = 1;
-   INTCONbits.GIE    = 1;  //Enable all configured interrupts
+   //INTCONbits.PEIE   = 1;
+   //INTCONbits.GIE    = 1;  //Enable all configured interrupts
 
 }
 
@@ -230,47 +230,38 @@ int main ( )
 {
    unsigned long idle_timer      = 0 ;
 
+   M1 = 0;
+   M2 = 0;
+   
    setup_cpu();
 
+   for (idle_timer = 0; idle_timer < 500000; idle_timer++);
+   
    while (1)
       {
-      CLRWDT();
-
-      
-      if (tick == 1)
-      {
-         tick = 0;
-
-         // update timing parameters
-         if (timercnt > 249)   // every 50 ms
-         {
-             // perform update task, e.g. the LED
-             //UpdateRGBled ();
-             
-            timercnt = 0;
-            fiftymillisecs++;
-            txSlot++;
-
-             if (txSlot == 5)
-             {              
-               txSlot = 0;
-               txEvent = 1;
-               LEDR = 1;
-               }
-             else
-            {
-                 LEDR = 0;
-               if (txSlot == 1)
-               {
-                  txEvent = 1;
-               }
-            }
-         }
-
-      }  // if tick
-      
-
-
+       LATC = 0x5; LATC = 0x5;
+       LATC = 0x5; LATC = 0x5;
+       LATC = 0x5; LATC = 0x5;
+       LATC = 0x5; LATC = 0x5;
+       LATC = 0x5; LATC = 0x5;
+       LATC = 0x5; LATC = 0x5;
+       LATC = 0x5; LATC = 0x5;
+       LATC = 0x5; 
+       LATC = 0;
+       LATC = 0;
+       LATC = 0;
+       LATC = 0;
+       LATC = 0;
+       LATC = 0xA; LATC = 0xA;
+       LATC = 0xA; LATC = 0xA;
+       LATC = 0xA; LATC = 0xA;
+       LATC = 0xA; LATC = 0xA;
+       LATC = 0xA; LATC = 0xA;
+       LATC = 0xA; LATC = 0xA;
+       LATC = 0xA; LATC = 0xA;
+       LATC = 0xA;
+       LATC = 0;
+       LATC = 0;
       }
    return 0;
 }

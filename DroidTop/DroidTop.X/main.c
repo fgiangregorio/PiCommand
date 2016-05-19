@@ -12,7 +12,7 @@
 #pragma config FOSC=INTOSC
 #pragma config WDTE=OFF
 #pragma config BOREN=0x00
-#pragma config CLKOUTEN=0
+#pragma config CLKOUTEN=1
 
 #define LEDB                   LATBbits.LATB2  // RB2 is blue led
 #define LEDG                   LATBbits.LATB3  // RB3 is green led
@@ -56,6 +56,15 @@ unsigned char  MsgBuffer[10] = {0x55,   // status - lsb
 void interrupt OnlyOne_ISR(void)    // There is only one interrupt on this CPU
 {
    /*============================================================================*/
+   // Timer IRQ
+   if (TMR2IF)
+      {      
+      TMR2  = 0x00 ;          // Create 56KHz
+      TMR2IF   = 0;           // Clear interrupt flag
+      M1 = ~M1;
+      }
+   
+   /*============================================================================*/
    if (TMR0IF)          // check if Timer0 interrupt has occurred
       {
       TMR0IF = 0;
@@ -64,13 +73,7 @@ void interrupt OnlyOne_ISR(void)    // There is only one interrupt on this CPU
       tick   = 1;
       }
 
-   /*============================================================================*/
-   // Timer IRQ
-   if (TMR2IF)
-      {      
-      TMR2  = 0x00 ;          // Create 38KHz
-      TMR2IF   = 0;           // Clear interrupt flag
-      }
+
 
 
 }
@@ -147,6 +150,7 @@ void EUSART_Initialize(void)
     TX1STA = 0x24;
     SP1BRGL = 0x05; // Baud Rate = 2400; SP1BRGL 130;
     SP1BRGH = 0x0D; // Baud Rate = 2400; SP1BRGH 6; 
+    RC6PPS = 0x14;  // assign TX to pin RC6
 
 } 
 
@@ -164,7 +168,7 @@ void setup_cpu ( void )
    // PORT assignments
    TRISA = 0xAF;    
    TRISB = 0xC0;    
-   TRISC = 0xF0;    // make lower 4 bits outputs   
+   TRISC = 0x90;    // make lower 4 bits outputs   
    ANSELA = 0x3F;   // only RA0-RA4 are analog input
    ANSELB = 0x00;   // all digital signals
    ANSELC = 0x00;   // all digital signals
@@ -175,22 +179,23 @@ void setup_cpu ( void )
    OPTION_REGbits.TMR0CS = 0 ;
    //INTCONbits.TMR0IE     = 1 ;     // Enable Timer0 interrupt
 
-   // Initialize Timer 2 ... General timing timer. @8MHz / 8 = 1Mhz
-   PR2      = 46;   // 55=50, 50=53.19, 46=56.17kHz, 40=60.97, 35=66.66
+   // Initialize Timer 2 ... General timing timer. @8MHz
+   PR2      = 59;   // 59=56.30kHz, 60=55.55, 50=64.43kHz, 70=48.73kHz, 93=38kHz
    TMR2     = 0x0;
    TMR2IF   = 0;
    T2CON    = 0x04; // Timer2 on
-   //TMR2IE   = 1;
+   TMR2IE   = 1;
+   RC0PPS   = 0x00;
 
-    EUSART_Initialize();
+   EUSART_Initialize();
    //APFCON1bits.TXSEL = 0 ; // TX is on RC6
-   //APFCON1bits.RXSEL = 0 ; // RX is on RC7
+   //A/PFCON1bits.RXSEL = 0 ; // RX is on RC7
 
    //IOCCNbits.IOCCN7  = 1;   // select RC7 for falling edge detection
-   //INTCONbits.IOCIE  = 1;   // enable IOC intrrupt
+   //INTCONbits.IOCIE  = 1;   // enable IOC interrupt
 
-   //INTCONbits.PEIE   = 1;
-   //INTCONbits.GIE    = 1;  //Enable all configured interrupts
+   INTCONbits.PEIE   = 1;
+   INTCONbits.GIE    = 1;  //Enable all configured interrupts
 
 }
 
@@ -230,38 +235,16 @@ int main ( )
 {
    unsigned long idle_timer      = 0 ;
 
-   M1 = 0;
-   M2 = 0;
-   
    setup_cpu();
+   M2 = 0;
 
-   for (idle_timer = 0; idle_timer < 500000; idle_timer++);
-   
    while (1)
       {
-       LATC = 0x5; LATC = 0x5;
-       LATC = 0x5; LATC = 0x5;
-       LATC = 0x5; LATC = 0x5;
-       LATC = 0x5; LATC = 0x5;
-       LATC = 0x5; LATC = 0x5;
-       LATC = 0x5; LATC = 0x5;
-       LATC = 0x5; LATC = 0x5;
-       LATC = 0x5; 
-       LATC = 0;
-       LATC = 0;
-       LATC = 0;
-       LATC = 0;
-       LATC = 0;
-       LATC = 0xA; LATC = 0xA;
-       LATC = 0xA; LATC = 0xA;
-       LATC = 0xA; LATC = 0xA;
-       LATC = 0xA; LATC = 0xA;
-       LATC = 0xA; LATC = 0xA;
-       LATC = 0xA; LATC = 0xA;
-       LATC = 0xA; LATC = 0xA;
-       LATC = 0xA;
-       LATC = 0;
-       LATC = 0;
+       EUSART_Write(0x01);
+       for (idle_timer = 0; idle_timer < 1000; idle_timer++)
+       {
+           CLRWDT();
+       }
       }
    return 0;
 }

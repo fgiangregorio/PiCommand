@@ -18,8 +18,7 @@
 #define LEDG                   LATBbits.LATB3  // RB3 is green led
 #define LEDR                   LATBbits.LATB4  // RB4 is red led
 
-#define M1                      LATCbits.LATC0  // motor fet 1
-#define M2                      LATCbits.LATC1  // motor fet 2
+#define M1                      LATAbits.LATA6  // for 56kHz
 
 enum
 {
@@ -150,7 +149,8 @@ void EUSART_Initialize(void)
     TX1STA = 0x24;
     SP1BRGL = 0x05; // Baud Rate = 2400; SP1BRGL 130;
     SP1BRGH = 0x0D; // Baud Rate = 2400; SP1BRGH 6; 
-    RC6PPS = 0x14;  // assign TX to pin RC6
+
+
 
 } 
 
@@ -166,13 +166,48 @@ void setup_cpu ( void )
    LEDB    = 1;
 
    // PORT assignments
-   TRISA = 0xAF;    
-   TRISB = 0xC0;    
+   TRISA = 0xAB;    
+   TRISB = 0x00;    
    TRISC = 0x90;    // make lower 4 bits outputs   
-   ANSELA = 0x3F;   // only RA0-RA4 are analog input
+   ANSELA = 0x3B;   // only RA0-RA4 are analog input; ra2 = dig output
    ANSELB = 0x00;   // all digital signals
    ANSELC = 0x00;   // all digital signals
    
+   RC0PPS = 0x04;   // assign CLC1OUT to RC0
+   RC1PPS = 0x04;   // assign CLC1OUT to RC0
+   RC6PPS = 0x14;   // assign TX      to RC6
+   
+   RB6PPS = 0x14;   // this will be transmission to LEFT EYE
+   RB7PPS = 0x14;   // this will be transmission to RIGHT EYE
+   
+
+   
+	CLC1GLS0  = 0x0A;
+	CLC1GLS1  = 0x0A;
+	CLC1GLS2  = 0xA0;
+	CLC1GLS3  = 0xA0;
+	CLC1SEL0  = 0x00;
+	CLC1SEL1  = 0x01;
+	CLC1SEL2  = 0x02;
+	CLC1SEL3  = 0x03;
+	CLC1POL   = 0x00;
+	CLC1CON   = 0x80;
+	CLCIN0PPS = 0x06;
+	CLCIN1PPS = 0x06;
+	CLCIN2PPS = 0x16;
+	CLCIN3PPS = 0x16;
+
+
+
+
+
+
+
+
+
+
+
+    
    // Initials Timer 0 settings
    OPTION_REGbits.PS     = 3 ;   // pre-scaler is set to 3, create 500kHz
    OPTION_REGbits.PSA    = 0 ;   // pre-scaler is assigned to Timer0
@@ -185,7 +220,7 @@ void setup_cpu ( void )
    TMR2IF   = 0;
    T2CON    = 0x04; // Timer2 on
    TMR2IE   = 1;
-   RC0PPS   = 0x00;
+
 
    EUSART_Initialize();
    //APFCON1bits.TXSEL = 0 ; // TX is on RC6
@@ -236,11 +271,10 @@ int main ( )
    unsigned long idle_timer      = 0 ;
 
    setup_cpu();
-   M2 = 0;
 
    while (1)
       {
-       EUSART_Write(0x01);
+       EUSART_Write(0xaa);
        for (idle_timer = 0; idle_timer < 1000; idle_timer++)
        {
            CLRWDT();

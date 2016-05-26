@@ -19,6 +19,7 @@
 #define LEDR                   LATBbits.LATB4  // RB4 is red led
 
 #define M1                      LATAbits.LATA6  // for 56kHz
+#define debugpin                LATBbits.LATB6  // debug output pin
 
 enum
 {
@@ -40,6 +41,7 @@ unsigned int   timercnt = 0;
 unsigned char  tick     = 0;
 unsigned char  txSlot   = 0;
 unsigned char  txEvent  = 0;
+unsigned char  hipower  = 0;    // if set, two IOs are used to drive the IR leds
 unsigned char  state    = IDLE;
 unsigned char  MsgBuffer[10] = {0x55,   // status - lsb
                                 0xAA,   // status - msb (spare for now)
@@ -66,8 +68,8 @@ void interrupt OnlyOne_ISR(void)    // There is only one interrupt on this CPU
    /*============================================================================*/
    if (TMR0IF)          // check if Timer0 interrupt has occurred
       {
+      TMR0   = 160;     //~~50us (measured)
       TMR0IF = 0;
-      TMR0   = 157; // 255 - 98 = ~~200us (measured)
       timercnt++;
       tick   = 1;
       }
@@ -149,9 +151,6 @@ void EUSART_Initialize(void)
     TX1STA = 0x24;
     SP1BRGL = 0x05; // Baud Rate = 2400; SP1BRGL 130;
     SP1BRGH = 0x0D; // Baud Rate = 2400; SP1BRGH 6; 
-
-
-
 } 
 
 void setup_cpu ( void )
@@ -175,9 +174,14 @@ void setup_cpu ( void )
    
    RC0PPS = 0x04;   // assign CLC1OUT to RC0
    RC1PPS = 0x04;   // assign CLC1OUT to RC0
+   
+   RC5PPS = 0x04;   // assign CLC1OUT to RC5
+   //RC6PPS = 0x04;   // assign CLC1OUT to RC6
+   
    RC6PPS = 0x14;   // assign TX      to RC6
    
-   RB6PPS = 0x14;   // this will be transmission to LEFT EYE
+   //RB6PPS = 0x14;   // this will be transmission to LEFT EYE
+   RB6PPS = 0x00;
    RB7PPS = 0x14;   // this will be transmission to RIGHT EYE
    
 
@@ -197,22 +201,12 @@ void setup_cpu ( void )
 	CLCIN2PPS = 0x16;
 	CLCIN3PPS = 0x16;
 
-
-
-
-
-
-
-
-
-
-
     
    // Initials Timer 0 settings
-   OPTION_REGbits.PS     = 3 ;   // pre-scaler is set to 3, create 500kHz
+   OPTION_REGbits.PS     = 1 ;   // pre-scaler not used for Timer0
    OPTION_REGbits.PSA    = 0 ;   // pre-scaler is assigned to Timer0
    OPTION_REGbits.TMR0CS = 0 ;
-   //INTCONbits.TMR0IE     = 1 ;     // Enable Timer0 interrupt
+   INTCONbits.TMR0IE     = 1 ;     // Enable Timer0 interrupt
 
    // Initialize Timer 2 ... General timing timer. @8MHz
    PR2      = 59;   // 59=56.30kHz, 60=55.55, 50=64.43kHz, 70=48.73kHz, 93=38kHz
@@ -223,11 +217,6 @@ void setup_cpu ( void )
 
 
    EUSART_Initialize();
-   //APFCON1bits.TXSEL = 0 ; // TX is on RC6
-   //A/PFCON1bits.RXSEL = 0 ; // RX is on RC7
-
-   //IOCCNbits.IOCCN7  = 1;   // select RC7 for falling edge detection
-   //INTCONbits.IOCIE  = 1;   // enable IOC interrupt
 
    INTCONbits.PEIE   = 1;
    INTCONbits.GIE    = 1;  //Enable all configured interrupts
@@ -274,11 +263,50 @@ int main ( )
 
    while (1)
       {
-       EUSART_Write(0xaa);
-       for (idle_timer = 0; idle_timer < 1000; idle_timer++)
-       {
-           CLRWDT();
-       }
+      CLRWDT();
+
+      if (tick == 1)
+      {
+         tick = 0;
+
+         // update timing parameters
+         if (timercnt >= 1000)
+         {
+            timercnt = 0;
+            fiftymillisecs++;
+            txSlot++;
+            txEvent = 1;
+            
+             if (txSlot == 5)
+             {
+               debugpin = 1;
+               txSlot = 0;
+               }
+             else
+            {
+                 debugpin = 0;
+
+            }
+         }
+
+         // now do next task
+         if (txEvent == 1)
+         {
+            txEvent = 0;
+            if (txSlot == 0)
+            {
+            sio_putstring ("1234");
+            }
+            else
+            {
+            //sio_putstring ("6789");
+            }
+         }
+
+
+      }  // if tick
+
+
       }
    return 0;
 }

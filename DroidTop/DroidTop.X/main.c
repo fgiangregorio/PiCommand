@@ -45,14 +45,22 @@ unsigned char  hipower  = 0;    // if set, two IOs are used to drive the IR leds
 unsigned char  state    = IDLE;
 unsigned char  MsgBuffer[10] = {0x55,   // status - lsb
                                 0xAA,   // status - msb (spare for now)
-                                0x00,   // MyID - lsb
-                                0x34,   // MyID - msb
+                                0xB1,   // MyID - lsb
+                                0xE4,   // MyID - msb
                                 0x00,   // robot 0 ID - lsb
                                 0x00,   // robot 0 ID - msb
                                 0x00,   // robot 1 ID - lsb
                                 0x00,   // robot 1 ID - msb
                                 0x07,   // LED setting R=bit2, G=bit1, B=bit0
                                 0x02};  // spare
+
+unsigned char  TxBuffer[5] = {
+                                0xAA,   // 
+                                0xB1,   // MyID - lsb
+                                0xE4,   // MyID - msb
+                                0x23,   // crc - add 3 bytes and >> 4
+                                0x00    // null character for string operations
+};
 
 void interrupt OnlyOne_ISR(void)    // There is only one interrupt on this CPU
 {
@@ -84,12 +92,15 @@ void interrupt OnlyOne_ISR(void)    // There is only one interrupt on this CPU
 /*============================================================================*/
 void delayus(unsigned int us)
 {
-   unsigned int start = TMR1 ;
+   //unsigned int start = TMR1 ;
    unsigned int delta = 0 ;
+   TMR1 = 0;
+   T1CONbits.TMR1ON = 1;
    while ( delta <= us )
       {
-      delta = (unsigned int)(TMR1 - start );
+      delta = (unsigned int)(TMR1);
       }
+   T1CONbits.TMR1ON = 0;
 }
 
 /*============================================================================*/
@@ -115,10 +126,10 @@ void EUSART_Write(char txData)
 /*============================================================================*/
 void sio_putstring(char *str)
 {
-   int i, len;
+   unsigned char i, len;
 
    len =  strlen ( (char *) str ) ;
-   for ( i=0; i<len; i++ )
+   for ( i=0; i < len; i++ )
       {
       //sio_putch( str[i] );
       EUSART_Write (str[i]);
@@ -167,7 +178,7 @@ void setup_cpu ( void )
    // PORT assignments
    TRISA = 0xAB;    
    TRISB = 0x00;    
-   TRISC = 0x90;    // make lower 4 bits outputs   
+   TRISC = 0x96;    //   
    ANSELA = 0x3B;   // only RA0-RA4 are analog input; ra2 = dig output
    ANSELB = 0x00;   // all digital signals
    ANSELC = 0x00;   // all digital signals
@@ -175,8 +186,8 @@ void setup_cpu ( void )
    RC0PPS = 0x04;   // assign CLC1OUT to RC0
    RC1PPS = 0x04;   // assign CLC1OUT to RC0
    
-   RC5PPS = 0x04;   // assign CLC1OUT to RC5
-   //RC6PPS = 0x04;   // assign CLC1OUT to RC6
+   RB0PPS = 0x06;   // assign CLC3OUT to RB0
+   RB1PPS = 0x06;   // assign CLC3OUT to RB1
    
    RC6PPS = 0x14;   // assign TX      to RC6
    
@@ -201,6 +212,22 @@ void setup_cpu ( void )
 	CLCIN2PPS = 0x16;
 	CLCIN3PPS = 0x16;
 
+	CLC3GLS0  = 0x0A;
+	CLC3GLS1  = 0x0A;
+	CLC3GLS2  = 0xA0;
+	CLC3GLS3  = 0xA0;
+	CLC3SEL0  = 0x00;
+	CLC3SEL1  = 0x01;
+	CLC3SEL2  = 0x02;
+	CLC3SEL3  = 0x03;
+	CLC3POL   = 0x00;
+	CLC3CON   = 0x80;
+	CLCIN0PPS = 0x06;
+	CLCIN1PPS = 0x06;
+	CLCIN2PPS = 0x16;
+	CLCIN3PPS = 0x16;
+
+
     
    // Initials Timer 0 settings
    OPTION_REGbits.PS     = 1 ;   // pre-scaler not used for Timer0
@@ -208,6 +235,11 @@ void setup_cpu ( void )
    OPTION_REGbits.TMR0CS = 0 ;
    INTCONbits.TMR0IE     = 1 ;     // Enable Timer0 interrupt
 
+   // Initialize Timer 1
+   T1CONbits.TMR1CS = 0x01;
+   T1CONbits.T1CKPS = 0;
+   TMR1 = 0x1000;
+   
    // Initialize Timer 2 ... General timing timer. @8MHz
    PR2      = 59;   // 59=56.30kHz, 60=55.55, 50=64.43kHz, 70=48.73kHz, 93=38kHz
    TMR2     = 0x0;
@@ -270,14 +302,14 @@ int main ( )
          tick = 0;
 
          // update timing parameters
-         if (timercnt >= 1000)
+         if (timercnt > 1000)
          {
             timercnt = 0;
             fiftymillisecs++;
             txSlot++;
             txEvent = 1;
             
-             if (txSlot == 5)
+             if (txSlot == 6)
              {
                debugpin = 1;
                txSlot = 0;
@@ -289,19 +321,21 @@ int main ( )
             }
          }
 
-         // now do next task
+        // now do next task
          if (txEvent == 1)
          {
             txEvent = 0;
-            if (txSlot == 0)
+            if (txSlot == 0)    // slot 0 is for the master 
             {
-            sio_putstring ("1234");
+                //delayus (50);  // 
+                sio_putstring (TxBuffer);
             }
             else
             {
             //sio_putstring ("6789");
             }
          }
+
 
 
       }  // if tick

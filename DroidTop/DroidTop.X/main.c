@@ -54,13 +54,18 @@ unsigned char  MsgBuffer[10] = {0x55,   // status - lsb
                                 0x07,   // LED setting R=bit2, G=bit1, B=bit0
                                 0x02};  // spare
 
-unsigned char  TxBuffer[5] = {
-                                0xAA,   // 
-                                0xB1,   // MyID - lsb
-                                0xE4,   // MyID - msb
-                                0x23,   // crc - add 3 bytes and >> 4
-                                0x00    // null character for string operations
-};
+/*
+ 0xAA, 0xCC, 0xE1, 0x25, 0x00   robot 1, crc = add 3 bytes, then >> 4
+ 0xAA, 0xCC, 0xD2, 0x24, 0x00
+ 0xAA, 0xCC, 0xB4, 0x22, 0x00
+ 0xAA, 0xCC, 0x96, 0x20, 0x00
+ 0xAA, 0xCC, 0x87, 0x1F, 0x00
+ 0xAA, 0xCC, 0x78, 0x1E, 0x00
+
+ */
+unsigned char  TxBuffer[5] = {0xAA, 0xCC, 0xE1, 0x25, 0x00};
+
+unsigned char  RxBuffer[5];
 
 void interrupt OnlyOne_ISR(void)    // There is only one interrupt on this CPU
 {
@@ -82,7 +87,15 @@ void interrupt OnlyOne_ISR(void)    // There is only one interrupt on this CPU
       tick   = 1;
       }
 
-
+   /*============================================================================*/
+   if (RCIF)          // check if UART receive interrupt has occurred
+      {
+       //debugpin = 1;
+       RxBuffer[0] = RC1REG;
+      RCIF = 0;
+      // do something, read rx buffer etc
+      //debugpin = ~debugpin;
+      }
 
 
 }
@@ -155,8 +168,8 @@ void EUSART_Initialize(void)
     // ABDOVF no_overflow; SCKP Non-Inverted; BRG16 16bit_generator; WUE disabled; ABDEN disabled; 
     BAUD1CON = 0x08;
 
-    // SPEN enabled; RX9 8-bit; CREN disabled; ADDEN disabled; SREN disabled; 
-    RC1STA = 0x80;
+    // SPEN enabled; CREN enabled; ADDEN disabled; SREN disabled; 
+    RC1STA = 0x90;
 
     // TX9 8-bit; TX9D 0; SENDB sync_break_complete; TXEN enabled; SYNC asynchronous; BRGH hi_speed; CSRC slave; 
     TX1STA = 0x24;
@@ -184,11 +197,11 @@ void setup_cpu ( void )
    ANSELC = 0x00;   // all digital signals
    
    RC0PPS = 0x04;   // assign CLC1OUT to RC0
-   RC1PPS = 0x04;   // assign CLC1OUT to RC0
+   RXPPS  = 0x11;   // assign UART RX input to RC1
    
    RB0PPS = 0x06;   // assign CLC3OUT to RB0
    RB1PPS = 0x06;   // assign CLC3OUT to RB1
-   
+
    RC6PPS = 0x14;   // assign TX      to RC6
    
    //RB6PPS = 0x14;   // this will be transmission to LEFT EYE
@@ -250,6 +263,7 @@ void setup_cpu ( void )
 
    EUSART_Initialize();
 
+   RCIE     = 1;
    INTCONbits.PEIE   = 1;
    INTCONbits.GIE    = 1;  //Enable all configured interrupts
 
@@ -316,7 +330,7 @@ int main ( )
                }
              else
             {
-                 debugpin = 0;
+               debugpin = 0;
 
             }
          }
@@ -328,7 +342,10 @@ int main ( )
             if (txSlot == 0)    // slot 0 is for the master 
             {
                 //delayus (50);  // 
+                LEDR = 0;
                 sio_putstring (TxBuffer);
+                LEDR = 1;
+
             }
             else
             {

@@ -7,6 +7,7 @@
 //  Timer 2  -> 
 //
 //  1.00aA  FG, 19 Aug 15, created
+//  1.00aB  FG, 11 Jul 16, started adding support for UART RX
 //
 //***********************************************************************************
 #include <pic.h>
@@ -46,31 +47,15 @@ const char image2[6] = { 0x1e, 0x21, 0x39, 0x39, 0x21, 0x1e };
 const char image3[6] = { 0x1e, 0x21, 0x27, 0x27, 0x21, 0x1e };
 const char image4[6] = { 0x1e, 0x21, 0x00, 0x00, 0x21, 0x1e };
 
-enum
-{
-	IDLE
-   , START
-   , ALLON
-   , ALLOFF
-   , Rled
-   , Gled
-   , Bled
-   , WAIT
-   , EYESON
-   , EYESOFF
-   , STOP
-};
-
-unsigned long  fiftymillisecs = 0 ; // IRQ Internal 50 Milliscond counter.
+unsigned long  fiftymillisecs = 0 ; // IRQ Internal 50 millisecond counter.
 unsigned long  swtime         = 0 ;
 unsigned char  font_selection = 0;
 unsigned int   timercnt = 0;
 unsigned char  txSlot   = 0;
 unsigned char  txEvent  = 0;
 unsigned char  tick     = 0;
-unsigned char  state    = IDLE;
-unsigned char  messageSync[10] = {0x55, 0xAA, 0xFF, 0xFF, 0xB0, 0x4F,};
-unsigned char  messageID[10]   = {0x55, 0xAA, 0x01, 0x02, 0x03, 0x04,};
+unsigned char  RxCmd    = 0;    // UART received character/command
+
 
 void interrupt OnlyOne_ISR(void)    // There is only one interrupt on this CPU
 {
@@ -85,12 +70,18 @@ void interrupt OnlyOne_ISR(void)    // There is only one interrupt on this CPU
       }
 
    /*============================================================================*/
-   if (TMR0IE && TMR0IF)          // check if Timer0 interrupt has occured
+   if (TMR0IE && TMR0IF)          // check if Timer0 interrupt has occurred
       {
 		TMR0IF = 0;
 		TMR0   = 65;
       }
 
+   /*============================================================================*/
+   if (RCIE && RCIF)          // UART RX interrupt has occurred
+      {
+		RCIF  = 0;
+		RxCmd = RCREG;
+      }
    /*============================================================================*/
 
 }
@@ -122,38 +113,7 @@ unsigned long delta_milliseconds ( unsigned long old_value )
    return get_milliseconds ( ) - old_value ;
 }
 
-//UART transmit function, parameter Ch is the character to send
-void sio_putch(char ch)
-{
-   TXREG = ch;
-   while (TXSTAbits.TRMT == 0);   // wait for buffer to empty
-}
-
 /*============================================================================*/
-void sio_putstring(char *str)
-{
-   int i, len;
-
-   len =  strlen ( (char *) str ) ;
-   for ( i=0; i<len; i++ )
-      {
-      sio_putch( str[i] );
-      //delayus(100);
-      }
-}
-
-/*============================================================================*/
-//Converts an unsigned 16 bit number into 5 (or less) digits and prints to UART
-//void sio_puti(unsigned int number)
-//{
-//   char tmp[8];
-//   sprintf( tmp, "%d", number );
-//   sio_putstring( tmp );
-//}
-
-/*============================================================================*/
-
-
 void setup_cpu ( void )
 {
    // set up oscillator control register
@@ -165,8 +125,8 @@ void setup_cpu ( void )
 
    // port output direction assignments
    TRISAbits.TRISA2 = 0;   // 
-	// for testing purposes only TRISAbits.TRISA4 = 0;   // CLKOUT
-	TRISAbits.TRISA5 = 0;   // TEST
+   // for testing purposes only TRISAbits.TRISA4 = 0;   // CLKOUT
+   TRISAbits.TRISA5 = 0;   // TEST
                            //
    TRISBbits.TRISB4 = 0;   // 
    TRISBbits.TRISB5 = 0;   // 
@@ -182,8 +142,8 @@ void setup_cpu ( void )
    TRISCbits.TRISC7 = 0;   // 
 
    // Initials Timer 0 settings
-   OPTION_REGbits.PS     = 0 ;	// prescaler is assigned to Timer0
-   OPTION_REGbits.PSA    = 0 ;	// prescaler is set to 2
+   OPTION_REGbits.PS     = 0 ;	// pre-scaler is assigned to Timer0
+   OPTION_REGbits.PSA    = 0 ;	// pre-scaler is set to 2
    OPTION_REGbits.TMR0CS = 0 ;
    INTCONbits.TMR0IE     = 0 ;   // Disable Timer0 interrupt
 
@@ -195,21 +155,21 @@ void setup_cpu ( void )
    T1CONbits.TMR1ON = 1;
    TMR1IE   = 1;
 
-   // Setup UART for debugging
-   SPEN  = 1;  // enable the serial port
-   //CREN  = 1;  // enable receiver
+    // Setup UART for receiving command inputs
+   SPEN  = 1;       // enable the serial port
+   SYNC  = 0;       // enable asynchronous mode
+   CREN  = 1;       // enable receiver
    BRG16 = 1;
-   SPBRGH = 6;
-   SPBRGL = 130;   // 1666 = 2400 baud
-   //TXSTAbits.TXEN   = 1;
-   TXSTAbits.BRGH   = 1;
-
-
-   //IOCCNbits.IOCCN7  = 1;   // select RC7 for falling edge detection
-   //INTCONbits.IOCIE  = 1;   // enable IOC intrrupt
-
-   INTCONbits.PEIE   = 1;
-   INTCONbits.GIE    = 1;  //Enable all configured interrupts
+   BRGH  = 1;
+   SPBRGH = 0x06;
+   SPBRGL = 0x82;   // 1666 = 2400 baud
+   APFCON0 = 0x84;  // Alternate Pin Configuration: set TX on pin RC4, RX on pin RC5
+   TXEN    = 0;     // Set to 1 if need the TX for debug purposes
+   RCIF    = 0;     // clear RX interrupt flag
+   RCIE    = 1;     // enable RX interrupt
+   
+   INTCONbits.PEIE   = 1;   // enable peripheral interrupts
+   INTCONbits.GIE    = 1;   // enable all configured interrupts
 
    ROW1 = 1; COL1 = 0;
    ROW2 = 1; COL2 = 0;
@@ -223,7 +183,6 @@ void setup_cpu ( void )
 
 
 /*============================================================================*/
-
 int main ( )
 {
    unsigned long idle_timer      = 0 ;

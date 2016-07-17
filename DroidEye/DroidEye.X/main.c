@@ -81,6 +81,7 @@ void interrupt OnlyOne_ISR(void)    // There is only one interrupt on this CPU
       {
 		RCIF  = 0;
 		RxCmd = RCREG;
+        TEST   = ~TEST;
       }
    /*============================================================================*/
 
@@ -202,7 +203,7 @@ int main ( )
          if (cidx == 5)       // column index
          {
 
-            TEST   = ~TEST;
+            //TEST   = ~TEST;
 
             cidx = 0;
             if (ridx == 5)    // row index

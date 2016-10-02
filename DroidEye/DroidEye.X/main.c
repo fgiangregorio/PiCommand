@@ -1,6 +1,8 @@
 // Device: PIC16LF1829
 // Using xc8 v1.30
 //
+// The cpu runs at 16MHz
+//
 //  Timer 0  -> 
 //  Timer 1  -> Use this for Main IDLE timing ( get_us ).
 //  Timer 2  -> 
@@ -9,6 +11,9 @@
 //  1.00aB  FG, 11 Jul 16, started adding support for UART RX
 //  1.00aC  DC, 15 Jul 16, added several expressions and mirroring
 //  1.00aD  DC, 22 Jul 16, added additional expressions, serial commands implemented but untested
+//  1.00aE  FG, 02 Oct 16, modified to accept 6 bytes + sync byte to define the eye expression / LED output
+//                         baud rate is changed to 9600
+//                         need to consider separate buffer for left and right eyes so that display can be different on each eye
 //
 //***********************************************************************************
 #include <pic.h>
@@ -37,7 +42,7 @@
 #define EYE_ID                 PORTAbits.RA4    // input, eye identifier, left or right
 #define EYE_RX                 PORTCbits.RC5    // input, eye rx
 
-#define TEST                   LATAbits.LATA5   // output, debug
+#define TEST                   LATAbits.LATA0   // output, debug
 
 static char visibleSymbol[6] = { 0x1e, 0x21, 0x27, 0x27, 0x21, 0x1e };
 static char tempRev[6];
@@ -63,6 +68,12 @@ unsigned char  txSlot   = 0;
 unsigned char  txEvent  = 0;
 unsigned char  tick     = 0;
 unsigned char  RxCmd    = 0;    // UART received character/command
+unsigned char  RxByte   = 0;    // received character
+unsigned char  RxCount  = 0;    // counts number of bytes received
+unsigned char  RxStart  = 0;    // flag to indicate we are receiving data bytes
+unsigned char  RxReady  = 0;    // flag to indicate that a complete message received
+unsigned char  RxBuffer[7];
+
 int orientation = 1;
 
 /*============================================================================*/
@@ -101,10 +112,30 @@ void interrupt OnlyOne_ISR(void)    // There is only one interrupt on this CPU
 
    if (RCIE && RCIF)          // UART RX interrupt has occurred
       {
+      TEST = 1;
       RCIF  = 0;
-      RxCmd = RCREG;
-        TEST   = ~TEST;
-       
+      RxByte = RCREG;
+
+      TEST = 0;
+        if (RxByte == 0 && RxCount == 0)    // we have our sync word
+        {
+            RxStart = 1;
+            RxCount++;
+        }
+        else if (RxStart == 1)
+        {
+
+            RxBuffer[RxCount-1] = RxByte;
+            RxCount++;
+            if (RxCount == 7)
+            {
+                RxCount = 0;
+                RxStart = 0;
+                RxReady = 1;
+            }
+        }
+        
+/*
       switch (RxCmd) {
             default :   {for (int i = 0; i < 6; i++)
                         {
@@ -138,15 +169,10 @@ void interrupt OnlyOne_ISR(void)    // There is only one interrupt on this CPU
                         break; }
          }
           
-         if(orientation == 1){
-            for (int i = 0; i < 6; i++){
-                tempRev[i] = visibleSymbol[5-i];
-            }
-            for (int i = 0; i < 6; i++)
-            {
-               visibleSymbol[i] = Reverse_bits(tempRev[i]);
-            }
-         }
+
+      */
+      
+
       }
 }
 
@@ -204,9 +230,10 @@ void setup_cpu ( void )
    ANSELA = 0x00;          // disable analog functions
 
    // port output direction assignments
+   TRISAbits.TRISA0 = 0;   // make PGD an output for testing
    TRISAbits.TRISA2 = 0;   // 
-   // for testing purposes only TRISAbits.TRISA4 = 0;   // CLKOUT
-   TRISAbits.TRISA5 = 0;   // TEST
+   TRISAbits.TRISA4 = 1;   // This is EYE_ID or orientation input
+   TRISAbits.TRISA5 = 0;   //
                            //
    TRISBbits.TRISB4 = 0;   // 
    TRISBbits.TRISB5 = 0;   // 
@@ -221,13 +248,24 @@ void setup_cpu ( void )
    TRISCbits.TRISC6 = 0;   // 
    TRISCbits.TRISC7 = 0;   // 
 
+   if (EYE_ID == 1)         // read external pin assignment
+   {
+       orientation = 1;     // right eye
+   }
+   else
+   {
+       orientation = 0;     // left eye
+   }
+
+
+   
    // Initials Timer 0 settings
    OPTION_REGbits.PS     = 0 ;   // pre-scaler is assigned to Timer0
    OPTION_REGbits.PSA    = 0 ;   // pre-scaler is set to 2
    OPTION_REGbits.TMR0CS = 0 ;
    INTCONbits.TMR0IE     = 0 ;   // Disable Timer0 interrupt
 
-   // Initalize Timer 1 ... General timing timer. @8MHz / 8 = 1Mhz
+   // Initialize Timer 1 ... General timing timer. @8MHz / 8 = 1Mhz
    TMR1     = 0x1000;
    TMR1IF   = 0;
    T1CONbits.T1CKPS = 0;   //FG###
@@ -241,12 +279,13 @@ void setup_cpu ( void )
    CREN  = 1;       // enable receiver
    BRG16 = 1;
    BRGH  = 1;
-   SPBRGH = 0x06;
-   SPBRGL = 0x82;   // 1666 = 2400 baud
+   SPBRGH = 0x01;
+   SPBRGL = 0xA0;   // 416 = 9600, 1666 = 2400 baud
    APFCON0 = 0x84;  // Alternate Pin Configuration: set TX on pin RC4, RX on pin RC5
    TXEN    = 0;     // Set to 1 if need the TX for debug purposes
    RCIF    = 0;     // clear RX interrupt flag
    RCIE    = 1;     // enable RX interrupt
+   TEST    = 0;
    
    INTCONbits.PEIE   = 1;   // enable peripheral interrupts
    INTCONbits.GIE    = 1;   // enable all configured interrupts
@@ -300,11 +339,39 @@ int main ( )
          
      
         if (cidx == 5)       // column index
-        {  TEST   = ~TEST;
+        {  
+            //TEST   = ~TEST;
            cidx = 0;
            if (ridx == 5)    // row index
            {
               ridx = 0;
+              
+                // update visible buffer with latest received data
+                if (RxReady == 1)
+                {
+                   RxReady = 0;
+                   for (int i = 0; i < 6; i++)
+                        {
+                           visibleSymbol[i] = RxBuffer[i];
+                        }
+                   
+                    // flush buffer
+                    for (int i = 0; i < 6; i++)
+                        {
+                           RxBuffer[i] = 0;
+                        }
+                   
+                   if(orientation == 1){
+                      for (int i = 0; i < 6; i++){
+                          tempRev[i] = visibleSymbol[5-i];
+                      }
+                      for (int i = 0; i < 6; i++)
+                      {
+                         visibleSymbol[i] = Reverse_bits(tempRev[i]);
+                      }
+                   }             
+                }              
+              
            }
            else
            {
@@ -315,6 +382,8 @@ int main ( )
         {
            cidx++;
         }        
+         
+
          
          switch (ridx)
          {

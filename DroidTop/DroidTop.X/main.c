@@ -2,7 +2,7 @@
 // Device: PIC16F1718
 // Using xc8 v1.30
 //
-// now working onI2C
+// Processor clock set to 32MHz
 //
 //***********************************************************************************
 #include <pic.h>
@@ -14,12 +14,13 @@
 #pragma config BOREN=0x00
 #pragma config CLKOUTEN=1
 
+#define EYETX                  LATBbits.LATB6  // RB6 is tx to eyes
 #define LEDB                   LATBbits.LATB2  // RB2 is blue led
 #define LEDG                   LATBbits.LATB3  // RB3 is green led
 #define LEDR                   LATBbits.LATB4  // RB4 is red led
 
 #define M1                      LATAbits.LATA6  // for 56kHz
-#define debugpin                LATBbits.LATB6  // debug output pin
+#define debugpin                LATAbits.LATA4  // debug output pin
 
 enum
 {
@@ -43,6 +44,8 @@ unsigned char  txSlot   = 0;
 unsigned char  txEvent  = 0;
 unsigned char  hipower  = 0;    // if set, two IOs are used to drive the IR leds
 unsigned char  state    = IDLE;
+unsigned char  i2c_data = 0;
+unsigned char  i2c_state = IDLE;
 unsigned char  MsgBuffer[10] = {0x55,   // status - lsb
                                 0xAA,   // status - msb (spare for now)
                                 0xB1,   // MyID - lsb
@@ -61,9 +64,9 @@ unsigned char  MsgBuffer[10] = {0x55,   // status - lsb
  0xAA, 0xCC, 0x96, 0x20, 0x00
  0xAA, 0xCC, 0x87, 0x1F, 0x00
  0xAA, 0xCC, 0x78, 0x1E, 0x00
-
  */
-unsigned char  TxBuffer[5] = {0xAA, 0xCC, 0xE1, 0x25, 0x00};
+unsigned char  TxBuffer[5]  = {0xAA, 0xCC, 0xE1, 0x25, 0x00};
+unsigned char  EyeBuffer[7] = {0x00, 0xff, 0x3f, 0x3f, 0x3f, 0x3f, 0x3f};
 
 unsigned char  RxBuffer[5];
 
@@ -87,6 +90,23 @@ void interrupt OnlyOne_ISR(void)    // There is only one interrupt on this CPU
       tick   = 1;
       }
 
+   /*============================================================================*/
+   if (SSP1IF)
+    {
+
+
+       if (SCIE == 1)
+       {
+            //debugpin = 1;
+            SCIE = 0;
+            //debugpin = 0;
+       }
+       i2c_data = SSP1BUF;
+       SSP1IF = 0;
+       CKP = 1;
+
+   }
+   
    /*============================================================================*/
    if (RCIF)          // check if UART receive interrupt has occurred
       {
@@ -158,7 +178,21 @@ void sio_putstring(char *str)
 //   sprintf( tmp, "%d", number );
 //   sio_putstring( tmp );
 //}
-
+void EUSART_Baudrate(int baud)
+{
+  if (baud == 9600)
+  {
+    SP1BRGL = 0x41;
+    SP1BRGH = 0x03;
+    return;
+  }
+  else if (baud == 2400)
+  {
+    SP1BRGL = 0x05;
+    SP1BRGH = 0x0D;
+    return;
+  }
+}
 /*============================================================================*/
 
 void EUSART_Initialize(void)
@@ -173,8 +207,7 @@ void EUSART_Initialize(void)
 
     // TX9 8-bit; TX9D 0; SENDB sync_break_complete; TXEN enabled; SYNC asynchronous; BRGH hi_speed; CSRC slave; 
     TX1STA = 0x24;
-    SP1BRGL = 0x05; // Baud Rate = 2400; SP1BRGL 130;
-    SP1BRGH = 0x0D; // Baud Rate = 2400; SP1BRGH 6; 
+    EUSART_Baudrate (2400);
 } 
 
 void setup_cpu ( void )
@@ -184,6 +217,10 @@ void setup_cpu ( void )
    OSCCONbits.IRCF   =0xE;      // select 32MHz
    OSCCONbits.SCS    =0x0;      // with SCS set to zero, clock source is set by FOSC
 
+   PORTA = 0xFF;
+   PORTB = 0xFF;
+   PORTC = 0xFF;
+   
    LEDR    = 1;
    LEDG    = 1;
    LEDB    = 1;
@@ -191,54 +228,44 @@ void setup_cpu ( void )
    // PORT assignments
    TRISA = 0xAB;    
    TRISB = 0x00;    
-   TRISC = 0x96;    //   
+   TRISC = 0x9E;    // RC3 and RC4 to be used for I2C, must be set as inputs
    ANSELA = 0x3B;   // only RA0-RA4 are analog input; ra2 = dig output
    ANSELB = 0x00;   // all digital signals
    ANSELC = 0x00;   // all digital signals
    
-   RC0PPS = 0x04;   // assign CLC1OUT to RC0
    RXPPS  = 0x11;   // assign UART RX input to RC1
-   
+
    RB0PPS = 0x06;   // assign CLC3OUT to RB0
    RB1PPS = 0x06;   // assign CLC3OUT to RB1
+   RB5PPS = 0x06;   // assign CLC3OUT to RB5
+   RC0PPS = 0x06;   // assign CLC3OUT to RC0
+   RC5PPS = 0x06;   // assign CLC3OUT to RC5
+   RC6PPS = 0x06;   // assign CLC3OUT to RC6
 
-   RC6PPS = 0x14;   // assign TX      to RC6
-   
-   //RB6PPS = 0x14;   // this will be transmission to LEFT EYE
-   RB6PPS = 0x00;
+
    RB7PPS = 0x14;   // this will be transmission to RIGHT EYE
-   
 
+   RB6PPS = 0x00;   // I/O for transmission to the eyes
    
-	CLC1GLS0  = 0x0A;
-	CLC1GLS1  = 0x0A;
-	CLC1GLS2  = 0xA0;
-	CLC1GLS3  = 0xA0;
-	CLC1SEL0  = 0x00;
-	CLC1SEL1  = 0x01;
-	CLC1SEL2  = 0x02;
-	CLC1SEL3  = 0x03;
-	CLC1POL   = 0x00;
-	CLC1CON   = 0x80;
 	CLCIN0PPS = 0x06;
 	CLCIN1PPS = 0x06;
-	CLCIN2PPS = 0x16;
-	CLCIN3PPS = 0x16;
+	CLCIN2PPS = 0x0F;
+	CLCIN3PPS = 0x0F;
 
+        CLC3CON   = 0x80;
+        CLC3POL   = 0x00;
+	CLC3SEL0  = 0x00; // CLCIN0PPS
+	CLC3SEL1  = 0x01; // CLCIN1PPS
+	CLC3SEL2  = 0x02; // CLCIN2PPS
+	CLC3SEL3  = 0x03; // CLCIN3PPS
 	CLC3GLS0  = 0x0A;
 	CLC3GLS1  = 0x0A;
 	CLC3GLS2  = 0xA0;
 	CLC3GLS3  = 0xA0;
-	CLC3SEL0  = 0x00;
-	CLC3SEL1  = 0x01;
-	CLC3SEL2  = 0x02;
-	CLC3SEL3  = 0x03;
-	CLC3POL   = 0x00;
-	CLC3CON   = 0x80;
-	CLCIN0PPS = 0x06;
-	CLCIN1PPS = 0x06;
-	CLCIN2PPS = 0x16;
-	CLCIN3PPS = 0x16;
+
+
+
+
 
 
     
@@ -260,6 +287,13 @@ void setup_cpu ( void )
    T2CON    = 0x04; // Timer2 on
    TMR2IE   = 1;
 
+   // Initialize the I2C
+   SSP1IF  = 0;
+   SSP1ADD  = 0x9E;
+   SSP1CON1 = 0x2E;
+   SSP1CON2 = 0x00;
+   SSP1CON3 = 0x20;
+   SSP1IE  = 1;  // enable I2C interrupts
 
    EUSART_Initialize();
 
@@ -345,6 +379,30 @@ int main ( )
                 LEDR = 0;
                 sio_putstring (TxBuffer);
                 LEDR = 1;
+                
+                // now transmit data to eyes
+                RB0PPS = 0x00;   // make IR LED pins normal IOs
+                RB1PPS = 0x00;
+                RB5PPS = 0x00;
+                RC0PPS = 0x00;
+                RC5PPS = 0x00;
+                RC6PPS = 0x00;
+                RB6PPS = 0x14;          // switch IO to UART TX line
+
+                EUSART_Baudrate (9600);
+
+                for (int i = 0; i < 7; i++)
+                {
+                  EUSART_Write (EyeBuffer[i]);
+                }
+                RB6PPS = 0x00;          // switch IO back to plain digital output
+                RB0PPS = 0x06;   // assign CLC3OUT to RB0
+                RB1PPS = 0x06;   // assign CLC3OUT to RB1
+                RB5PPS = 0x06;   // assign CLC3OUT to RB5
+                RC0PPS = 0x06;   // assign CLC3OUT to RC0
+                RC5PPS = 0x06;   // assign CLC3OUT to RC5
+                RC6PPS = 0x06;   // assign CLC3OUT to RC6
+                EUSART_Baudrate (2400); // restore baud rate
 
             }
             else

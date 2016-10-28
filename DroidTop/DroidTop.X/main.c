@@ -22,6 +22,9 @@
 #define M1                      LATAbits.LATA6  // for 56kHz
 #define debugpin                LATAbits.LATA4  // debug output pin
 
+#define I2C_SLAVE_ADDRESS 0x4F 
+#define I2C_SLAVE_MASK    0x7F
+
 enum
 {
    IDLE
@@ -94,13 +97,26 @@ void interrupt OnlyOne_ISR(void)    // There is only one interrupt on this CPU
    if (SSP1IF)
     {
 
-
+            debugpin = 1;
+                        debugpin = 0;
+                        
+            if ((SSP1STAT & 0x08) == 0x08)
+            {
+              SSP1STAT &= ~0x08;
+              debugpin = 1;
+              debugpin = 0;
+              debugpin = 1;
+              debugpin = 0;
+            }
+            /* 
        if (SCIE == 1)
        {
-            //debugpin = 1;
+
             SCIE = 0;
-            //debugpin = 0;
+
        }
+             * 
+             * */
        i2c_data = SSP1BUF;
        SSP1IF = 0;
        CKP = 1;
@@ -263,11 +279,8 @@ void setup_cpu ( void )
 	CLC3GLS2  = 0xA0;
 	CLC3GLS3  = 0xA0;
 
-
-
-
-
-
+        RC3PPS = 0x10;  // select SCL for this pin
+        RC4PPS = 0x11;  // select SDA for this pin
     
    // Initials Timer 0 settings
    OPTION_REGbits.PS     = 1 ;   // pre-scaler not used for Timer0
@@ -289,12 +302,14 @@ void setup_cpu ( void )
 
    // Initialize the I2C
    SSP1IF  = 0;
-   SSP1ADD  = 0x9E;
-   SSP1CON1 = 0x2E;
+   SSP1STAT = 0x80;
+   SSP1ADD = (I2C_SLAVE_ADDRESS << 1);
+   SSP1MSK = 0xff;
+   SSP1CON1 = 0x26;
    SSP1CON2 = 0x00;
    SSP1CON3 = 0x20;
    SSP1IE  = 1;  // enable I2C interrupts
-
+    
    EUSART_Initialize();
 
    RCIE     = 1;
@@ -359,12 +374,12 @@ int main ( )
             
              if (txSlot == 6)
              {
-               debugpin = 1;
+               //debugpin = 1;
                txSlot = 0;
                }
              else
             {
-               debugpin = 0;
+               //debugpin = 0;
 
             }
          }
@@ -375,10 +390,13 @@ int main ( )
             txEvent = 0;
             if (txSlot == 0)    // slot 0 is for the master 
             {
+              
                 //delayus (50);  // 
                 LEDR = 0;
                 sio_putstring (TxBuffer);
                 LEDR = 1;
+                
+                
                 
                 // now transmit data to eyes
                 RB0PPS = 0x00;   // make IR LED pins normal IOs
@@ -403,7 +421,7 @@ int main ( )
                 RC5PPS = 0x06;   // assign CLC3OUT to RC5
                 RC6PPS = 0x06;   // assign CLC3OUT to RC6
                 EUSART_Baudrate (2400); // restore baud rate
-
+              
             }
             else
             {

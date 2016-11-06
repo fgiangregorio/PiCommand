@@ -416,11 +416,15 @@ int main ( )
         if (ledGq.cmd[0] != 0)
         {
           if (ledGq.cmd[0] == 0x03) LEDG = !LEDG; // toggle green led
+          else if (ledGq.cmd[0] == 0x01) LEDG = 1; // turn green led off
+          else if (ledGq.cmd[0] == 0x02) LEDG = 0; // turn green led on
           ledGq.cmd[0] = 0;
         }
         if (ledBq.cmd[0] != 0)
         {
           if (ledBq.cmd[0] == 0x03) LEDB = !LEDB; // toggle blue led
+          else if (ledBq.cmd[0] == 0x01) LEDB = 1; // turn blue led off
+          else if (ledBq.cmd[0] == 0x02) LEDB = 0; // turn blue led on
           ledBq.cmd[0] = 0;
         }
          

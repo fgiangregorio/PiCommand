@@ -47,8 +47,7 @@ unsigned char  txSlot   = 0;
 unsigned char  txEvent  = 0;
 unsigned char  hipower  = 0;    // if set, two IOs are used to drive the IR leds
 unsigned char  state    = IDLE;
-unsigned char  i2c_data = 0;
-unsigned char  i2c_state = IDLE;
+
 unsigned char  MsgBuffer[10] = {0x55,   // status - lsb
                                 0xAA,   // status - msb (spare for now)
                                 0xB1,   // MyID - lsb
@@ -70,6 +69,14 @@ unsigned char  MsgBuffer[10] = {0x55,   // status - lsb
  */
 unsigned char  TxBuffer[5]  = {0xAA, 0xCC, 0xE1, 0x25, 0x00};
 unsigned char  EyeBuffer[7] = {0x00, 0xff, 0x3f, 0x3f, 0x3f, 0x3f, 0x3f};
+
+volatile unsigned char  i2c_state = IDLE;
+volatile unsigned char  i2c_start = 0;
+volatile unsigned char  i2c_data = 0;   // data prepared for transmission to master
+volatile unsigned char  i2c_ptr  = 0;
+volatile unsigned char  i2c_buffer[30]; // data received from master for processing by controller
+
+volatile unsigned char  database[30];   // data structure that keeps status and message from master
 
 unsigned char  RxBuffer[5];
 
@@ -96,41 +103,53 @@ void interrupt OnlyOne_ISR(void)    // There is only one interrupt on this CPU
    /*============================================================================*/
    if (SSP1IF)
     {
+      SSP1IF   = 0;
+      i2c_data = SSP1BUF;
 
-            debugpin = 1;
-                        debugpin = 0;
-                        
-            if ((SSP1STAT & 0x08) == 0x08)
-            {
-              SSP1STAT &= ~0x08;
-              debugpin = 1;
-              debugpin = 0;
-              debugpin = 1;
-              debugpin = 0;
-            }
-            /* 
-       if (SCIE == 1)
-       {
+      if (SSP1STATbits.P == 1)  // detect stop bit
+      {
+        i2c_ptr = 0;
+        return;
+      }
+      
+      // Master Write Operation.
+         //this is write operation from master
+         i2c_buffer[i2c_ptr] = i2c_data;
+         CKP  = 1;
+         if (i2c_ptr == 9)
+         {
+           // see where the received data needs to be placed in database memory, offset (location) given by i2c_buffer[2] and length by i2c_buffer[3]
+           for (int i = 0; i < i2c_buffer[3]; i++)
+           {
+             database[i + i2c_buffer[2]] = i2c_buffer[i + 4];
+           }
+           
+           if (i2c_buffer[2] == 12)       // this is the eye data
+           {
+            EyeBuffer[0] = 0x00;           // this is the sync word that must be added to protocol
+            EyeBuffer[1] = database[12];  // first line data word
+            EyeBuffer[2] = database[13];
+            EyeBuffer[3] = database[14];
+            EyeBuffer[4] = database[15];
+            EyeBuffer[5] = database[16];
+            EyeBuffer[6] = database[17];  // last line data word
+           }
+           
+           
+           debugpin = 1;
+           debugpin = 0;
+         }
+         i2c_ptr++;
 
-            SCIE = 0;
-
-       }
-             * 
-             * */
-       i2c_data = SSP1BUF;
-       SSP1IF = 0;
-       CKP = 1;
-
-   }
+      }   // end I2C interrupt
+  
    
    /*============================================================================*/
    if (RCIF)          // check if UART receive interrupt has occurred
       {
-       //debugpin = 1;
-       RxBuffer[0] = RC1REG;
-      RCIF = 0;
+        RxBuffer[0] = RC1REG;
+        RCIF = 0;
       // do something, read rx buffer etc
-      //debugpin = ~debugpin;
       }
 
 
@@ -305,14 +324,14 @@ void setup_cpu ( void )
    SSP1STAT = 0x80;
    SSP1ADD = (I2C_SLAVE_ADDRESS << 1);
    SSP1MSK = 0xff;
-   SSP1CON1 = 0x26;
+   SSP1CON1 = 0x3E; // enable start and stop bit interrupts
    SSP1CON2 = 0x00;
    SSP1CON3 = 0x20;
    SSP1IE  = 1;  // enable I2C interrupts
     
    EUSART_Initialize();
 
-   RCIE     = 1;
+   //RCIE     = 1;
    INTCONbits.PEIE   = 1;
    INTCONbits.GIE    = 1;  //Enable all configured interrupts
 
@@ -360,6 +379,16 @@ int main ( )
       {
       CLRWDT();
 
+      /*
+      if (i2c_start == 1)
+      {
+        i2c_start = 0;
+        for (int i = 0; i < 7; i++)
+        {
+          EyeBuffer[i] = i2c_buffer[4+i];
+        }
+      } */
+      
       if (tick == 1)
       {
          tick = 0;

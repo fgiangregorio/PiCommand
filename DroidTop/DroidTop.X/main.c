@@ -48,17 +48,6 @@ unsigned char  txEvent  = 0;
 unsigned char  hipower  = 0;    // if set, two IOs are used to drive the IR leds
 unsigned char  state    = IDLE;
 
-unsigned char  MsgBuffer[10] = {0x55,   // status - lsb
-                                0xAA,   // status - msb (spare for now)
-                                0xB1,   // MyID - lsb
-                                0xE4,   // MyID - msb
-                                0x00,   // robot 0 ID - lsb
-                                0x00,   // robot 0 ID - msb
-                                0x00,   // robot 1 ID - lsb
-                                0x00,   // robot 1 ID - msb
-                                0x07,   // LED setting R=bit2, G=bit1, B=bit0
-                                0x02};  // spare
-
 /*
  0xAA, 0xCC, 0xE1, 0x25, 0x00   robot 1, crc = add 3 bytes, then >> 4
  0xAA, 0xCC, 0xD2, 0x24, 0x00
@@ -79,6 +68,21 @@ volatile unsigned char  i2c_buffer[30]; // data received from master for process
 volatile unsigned char  database[30];   // data structure that keeps status and message from master
 
 unsigned char  RxBuffer[5];
+
+typedef struct
+   {
+   int wridx;
+   int rdidx;
+   int cmd[16];
+   int on_ttl[16];
+   int off_ttl[16];
+   } led_msg_q_type;
+
+led_msg_q_type ledRq;   // command structure for red led
+led_msg_q_type ledGq;   // command structure for green led
+led_msg_q_type ledBq;   // command structure for blue led
+
+
 
 void interrupt OnlyOne_ISR(void)    // There is only one interrupt on this CPU
 {
@@ -124,9 +128,34 @@ void interrupt OnlyOne_ISR(void)    // There is only one interrupt on this CPU
              database[i + i2c_buffer[2]] = i2c_buffer[i + 4];
            }
            
+           if (i2c_buffer[2] == 6)        // this is RGB LED data
+           {
+             
+            if ( (database[6]) == 0x04) // this is red led
+            {
+              ledRq.cmd[0] = database[7];
+              ledRq.on_ttl [0] = (int) ((database[8] << 8) | database[9]);
+              ledRq.off_ttl[0] = (int) ((database[10] << 8) | database[11]);
+            }
+            if ( (database[6]) == 0x05) // this is green led
+            {
+              ledGq.cmd[0] = database[7];
+              ledGq.on_ttl [0] = (int) ((database[8] << 8) | database[9]);
+              ledGq.off_ttl[0] = (int) ((database[10] << 8) | database[11]);
+            }            
+            if ( (database[6]) == 0x06) // this is blue led
+            {
+              ledBq.cmd[0] = database[7];
+              ledBq.on_ttl [0] = (int) ((database[8] << 8) | database[9]);
+              ledBq.off_ttl[0] = (int) ((database[10] << 8) | database[11]);
+            }
+           debugpin = 1;
+           debugpin = 0;
+           }
+           
            if (i2c_buffer[2] == 12)       // this is the eye data
            {
-            EyeBuffer[0] = 0x00;           // this is the sync word that must be added to protocol
+            EyeBuffer[0] = 0x00;          // this is the sync word that must be added to protocol
             EyeBuffer[1] = database[12];  // first line data word
             EyeBuffer[2] = database[13];
             EyeBuffer[3] = database[14];
@@ -136,8 +165,7 @@ void interrupt OnlyOne_ISR(void)    // There is only one interrupt on this CPU
            }
            
            
-           debugpin = 1;
-           debugpin = 0;
+
          }
          i2c_ptr++;
 
@@ -256,9 +284,9 @@ void setup_cpu ( void )
    PORTB = 0xFF;
    PORTC = 0xFF;
    
-   LEDR    = 1;
-   LEDG    = 1;
-   LEDB    = 1;
+   LEDR    = 0;
+   LEDG    = 0;
+   LEDB    = 0;
 
    // PORT assignments
    TRISA = 0xAB;    
@@ -337,35 +365,6 @@ void setup_cpu ( void )
 
 }
 
-void UpdateRGBled ()
-{
-    if ((MsgBuffer[8] & 0x04) == 0x04)
-    {
-       LEDR = 0;
-    }
-    else
-    {
-       LEDR = 1;
-    }
-    
-    if ((MsgBuffer[8] & 0x02) == 0x02)
-    {
-       LEDG = 0;
-    }
-    else
-    {
-       LEDG = 1;
-    }
-
-    if ((MsgBuffer[8] & 0x01) == 0x01)
-    {
-       LEDB = 0;
-    }
-    else
-    {
-       LEDB = 1;
-    }    
-}
 
 /*============================================================================*/
 
@@ -374,25 +373,57 @@ int main ( )
    unsigned long idle_timer      = 0 ;
 
    setup_cpu();
+   
+    ledRq.rdidx = 0;
+    ledRq.wridx = 0;
+    ledRq.cmd[0] = 0;
+    ledRq.on_ttl[0] = 0;
+    ledRq.off_ttl[0] = 0;
+    
+    ledGq.rdidx = 0;
+    ledGq.wridx = 0;
+    ledGq.cmd[0] = 0;
+    ledGq.on_ttl[0] = 0;
+    ledGq.off_ttl[0] = 0;
+    
+    ledBq.rdidx = 0;
+    ledBq.wridx = 0;
+    ledBq.cmd[0] = 0;
+    ledBq.on_ttl[0] = 0;
+    ledBq.off_ttl[0] = 0;
 
+    LEDR    = 1;
+    LEDG    = 1;
+    LEDB    = 1;
+   
    while (1)
       {
       CLRWDT();
 
-      /*
-      if (i2c_start == 1)
-      {
-        i2c_start = 0;
-        for (int i = 0; i < 7; i++)
-        {
-          EyeBuffer[i] = i2c_buffer[4+i];
-        }
-      } */
-      
+
       if (tick == 1)
       {
          tick = 0;
 
+
+        if (ledRq.cmd[0] != 0)
+        {
+          if (ledRq.cmd[0] == 0x03) LEDR = !LEDR; // toggle red led
+          else if (ledRq.cmd[0] == 0x01) LEDR = 1; // turn red led off
+          else if (ledRq.cmd[0] == 0x02) LEDR = 0; // turn red led on
+          ledRq.cmd[0] = 0;
+        }
+        if (ledGq.cmd[0] != 0)
+        {
+          if (ledGq.cmd[0] == 0x03) LEDG = !LEDG; // toggle green led
+          ledGq.cmd[0] = 0;
+        }
+        if (ledBq.cmd[0] != 0)
+        {
+          if (ledBq.cmd[0] == 0x03) LEDB = !LEDB; // toggle blue led
+          ledBq.cmd[0] = 0;
+        }
+         
          // update timing parameters
          if (timercnt > 1000)
          {
@@ -421,9 +452,9 @@ int main ( )
             {
               
                 //delayus (50);  // 
-                LEDR = 0;
+                //LEDR = 0;
                 sio_putstring (TxBuffer);
-                LEDR = 1;
+                //LEDR = 1;
                 
                 
                 
@@ -434,7 +465,7 @@ int main ( )
                 RC0PPS = 0x00;
                 RC5PPS = 0x00;
                 RC6PPS = 0x00;
-                RB6PPS = 0x14;          // switch IO to UART TX line
+                RB6PPS = 0x14;   // switch IO to UART TX line
 
                 EUSART_Baudrate (9600);
 
@@ -442,7 +473,7 @@ int main ( )
                 {
                   EUSART_Write (EyeBuffer[i]);
                 }
-                RB6PPS = 0x00;          // switch IO back to plain digital output
+                RB6PPS = 0x00;   // switch IO back to plain digital output
                 RB0PPS = 0x06;   // assign CLC3OUT to RB0
                 RB1PPS = 0x06;   // assign CLC3OUT to RB1
                 RB5PPS = 0x06;   // assign CLC3OUT to RB5
@@ -466,54 +497,3 @@ int main ( )
       }
    return 0;
 }
-
-
-/*
-
-
-
-
-
-
-
-
-
-
-
-         fiftymillisecs++;
-          txSlot++;
-         tick = 0;
-EYE1 = ~EYE1;
-
-
-
-
-         if (txEvent == 1)
-         {
-            txEvent = 0;
-            if (txSlot == 0)
-            {
-            sio_putstring (messageSync);
-            }
-            else
-            {
-            sio_putstring (messageID);
-            }
-         }
-
-      }
-
-
-
-
-      CLRWDT();
-
-      }
-   return 0;
-}
-
-
-
-
-*/
-

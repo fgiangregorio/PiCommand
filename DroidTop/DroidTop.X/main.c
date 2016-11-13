@@ -4,6 +4,8 @@
 //
 // Processor clock set to 32MHz
 //
+// 12 Nov 16, extended the implementation of the RGB LEDD
+
 //***********************************************************************************
 #include <pic.h>
 #include <string.h>
@@ -71,16 +73,21 @@ unsigned char  RxBuffer[5];
 
 typedef struct
    {
-   int wridx;
-   int rdidx;
-   int cmd[16];
-   int on_ttl[16];
-   int off_ttl[16];
+   int cmd;
+   int on_ttl;
+   int off_ttl;
    } led_msg_q_type;
 
 led_msg_q_type ledRq;   // command structure for red led
 led_msg_q_type ledGq;   // command structure for green led
 led_msg_q_type ledBq;   // command structure for blue led
+
+int ledRontimer = 0;    // Red led on timer, for use in Toggle command
+int ledRofftimer = 0;   // Red led off timer, for use in Toggle command
+int ledGontimer = 0;
+int ledGofftimer = 0;
+int ledBontimer = 0;
+int ledBofftimer = 0;
 
 
 
@@ -131,26 +138,30 @@ void interrupt OnlyOne_ISR(void)    // There is only one interrupt on this CPU
            if (i2c_buffer[2] == 6)        // this is RGB LED data
            {
              
-            if ( (database[6]) == 0x04) // this is red led
+            if ( ((database[6]) == 0x04) || ((database[6]) == 0x07) || ((database[6]) == 0x08) || ((database[6]) == 0x0A) ) // this is red led
             {
-              ledRq.cmd[0] = database[7];
-              ledRq.on_ttl [0] = (int) ((database[8] << 8) | database[9]);
-              ledRq.off_ttl[0] = (int) ((database[10] << 8) | database[11]);
+              ledRq.cmd = database[7];
+              ledRq.on_ttl  = (int) ((database[8] << 8) | database[9]);
+              ledRq.off_ttl = (int) ((database[10] << 8) | database[11]);
+              ledRontimer   = ledRq.on_ttl * 18;  // should be * 20 to convert our 50us cycle to 1ms increments specified in API document, 18 is close to empirical measurements
+              ledRofftimer  = ledRq.off_ttl * 18;
             }
-            if ( (database[6]) == 0x05) // this is green led
+            if ( ((database[6]) == 0x05) || ((database[6]) == 0x07) || ((database[6]) == 0x09) || ((database[6]) == 0x0A) ) // this is green led
             {
-              ledGq.cmd[0] = database[7];
-              ledGq.on_ttl [0] = (int) ((database[8] << 8) | database[9]);
-              ledGq.off_ttl[0] = (int) ((database[10] << 8) | database[11]);
+              ledGq.cmd = database[7];
+              ledGq.on_ttl  = (int) ((database[8] << 8) | database[9]);
+              ledGq.off_ttl = (int) ((database[10] << 8) | database[11]);
+              ledGontimer   = ledGq.on_ttl * 18;  // should be * 20 to convert our 50us cycle to 1ms increments specified in API document, 18 is close to empirical measurements
+              ledGofftimer  = ledGq.off_ttl * 18;
             }            
-            if ( (database[6]) == 0x06) // this is blue led
+            if ( ((database[6]) == 0x06) || ((database[6]) == 0x08) || ((database[6]) == 0x09) || ((database[6]) == 0x0A) ) // this is blue led
             {
-              ledBq.cmd[0] = database[7];
-              ledBq.on_ttl [0] = (int) ((database[8] << 8) | database[9]);
-              ledBq.off_ttl[0] = (int) ((database[10] << 8) | database[11]);
+              ledBq.cmd = database[7];
+              ledBq.on_ttl  = (int) ((database[8] << 8) | database[9]);
+              ledBq.off_ttl = (int) ((database[10] << 8) | database[11]);
+              ledBontimer   = ledBq.on_ttl * 18;  // should be * 20 to convert our 50us cycle to 1ms increments specified in API document, 18 is close to empirical measurements
+              ledBofftimer  = ledBq.off_ttl * 18;
             }
-           debugpin = 1;
-           debugpin = 0;
            }
            
            if (i2c_buffer[2] == 12)       // this is the eye data
@@ -374,23 +385,17 @@ int main ( )
 
    setup_cpu();
    
-    ledRq.rdidx = 0;
-    ledRq.wridx = 0;
-    ledRq.cmd[0] = 0;
-    ledRq.on_ttl[0] = 0;
-    ledRq.off_ttl[0] = 0;
+    ledRq.cmd = 0;
+    ledRq.on_ttl = 0;
+    ledRq.off_ttl = 0;
     
-    ledGq.rdidx = 0;
-    ledGq.wridx = 0;
-    ledGq.cmd[0] = 0;
-    ledGq.on_ttl[0] = 0;
-    ledGq.off_ttl[0] = 0;
+    ledGq.cmd = 0;
+    ledGq.on_ttl = 0;
+    ledGq.off_ttl = 0;
     
-    ledBq.rdidx = 0;
-    ledBq.wridx = 0;
-    ledBq.cmd[0] = 0;
-    ledBq.on_ttl[0] = 0;
-    ledBq.off_ttl[0] = 0;
+    ledBq.cmd = 0;
+    ledBq.on_ttl = 0;
+    ledBq.off_ttl = 0;
 
     LEDR    = 1;
     LEDG    = 1;
@@ -405,27 +410,103 @@ int main ( )
       {
          tick = 0;
 
+         debugpin = ~debugpin;
 
-        if (ledRq.cmd[0] != 0)
+
+        if (ledRq.cmd != 0)
         {
-          if (ledRq.cmd[0] == 0x03) LEDR = !LEDR; // toggle red led
-          else if (ledRq.cmd[0] == 0x01) LEDR = 1; // turn red led off
-          else if (ledRq.cmd[0] == 0x02) LEDR = 0; // turn red led on
-          ledRq.cmd[0] = 0;
+          if (ledRq.cmd == 0x03)
+          {
+            if (ledRontimer != 0)
+            {
+              ledRontimer = ledRontimer - 1;
+              LEDR = 0; // turn red led on
+            }
+            else if (ledRofftimer != 0)
+            {
+              ledRofftimer = ledRofftimer - 1;
+              LEDR = 1; // turn red led off
+              if (ledRofftimer == 0)
+              {
+                ledRontimer   = ledRq.on_ttl * 18;   // reload the timer values
+                ledRofftimer  = ledRq.off_ttl * 18;
+              }
+            }
+          }
+          else if (ledRq.cmd == 0x01)
+          {
+            LEDR = 1; // turn red led off
+            ledRq.cmd = 0;
+          }
+          else if (ledRq.cmd == 0x02)
+          {
+            LEDR = 0; // turn red led on
+            ledRq.cmd = 0;
+          }
         }
-        if (ledGq.cmd[0] != 0)
+         
+        if (ledGq.cmd != 0)
         {
-          if (ledGq.cmd[0] == 0x03) LEDG = !LEDG; // toggle green led
-          else if (ledGq.cmd[0] == 0x01) LEDG = 1; // turn green led off
-          else if (ledGq.cmd[0] == 0x02) LEDG = 0; // turn green led on
-          ledGq.cmd[0] = 0;
+          if (ledGq.cmd == 0x03)
+          {
+            if (ledGontimer != 0)
+            {
+              ledGontimer = ledGontimer - 1;
+              LEDG = 0; // turn green led on
+            }
+            else if (ledGofftimer != 0)
+            {
+              ledGofftimer = ledGofftimer - 1;
+              LEDG = 1; // turn green led off
+              if (ledGofftimer == 0)
+              {
+                ledGontimer   = ledGq.on_ttl * 18;   // reload the timer values
+                ledGofftimer  = ledGq.off_ttl * 18;
+              }
+            }
+          }
+          else if (ledGq.cmd == 0x01)
+          {
+            LEDG = 1; // turn green led off
+            ledGq.cmd = 0;
+          }
+          else if (ledGq.cmd == 0x02)
+          {
+            LEDG = 0; // turn green led on
+            ledGq.cmd = 0;
+          }
         }
-        if (ledBq.cmd[0] != 0)
+         
+        if (ledBq.cmd != 0)
         {
-          if (ledBq.cmd[0] == 0x03) LEDB = !LEDB; // toggle blue led
-          else if (ledBq.cmd[0] == 0x01) LEDB = 1; // turn blue led off
-          else if (ledBq.cmd[0] == 0x02) LEDB = 0; // turn blue led on
-          ledBq.cmd[0] = 0;
+          if (ledBq.cmd == 0x03)
+          {
+            if (ledBontimer != 0)
+            {
+              ledBontimer = ledBontimer - 1;
+              LEDB = 0; // turn blue led on
+            }
+            else if (ledBofftimer != 0)
+            {
+              ledBofftimer = ledBofftimer - 1;
+              LEDB = 1; // turn blue led off
+              if (ledBofftimer == 0)
+              {
+                ledBontimer   = ledBq.on_ttl * 18;   // reload the timer values
+                ledBofftimer  = ledBq.off_ttl * 18;
+              }
+            }
+          }
+          else if (ledBq.cmd == 0x01)
+          {
+            LEDB = 1; // turn blue led off
+            ledBq.cmd = 0;
+          }
+          else if (ledBq.cmd == 0x02)
+          {
+            LEDB = 0; // turn blue led on
+            ledBq.cmd = 0;
+          }
         }
          
          // update timing parameters
@@ -501,3 +582,28 @@ int main ( )
       }
    return 0;
 }
+
+/* from Google API document*/
+/*
+ * 
+
+This parameter specifies an array of devices should be toggled by this command. 
+The value of this byte addresses a specific device. The action to be performed on 
+the device is determined by next (state) byte. The list of devices are
+Value 0 : unused
+Value 1 : unused
+Value 2 : Left Laser
+Value 3 : Right Laser
+Value 4:  Multicolor LED - RED
+Value 5 : Multicolor LED - GREEN
+Value 6 : Multicolor LED - BLUE
+Value 7:  Multicolor LED - RED + GRN
+Value 8 : Multicolor LED - RED + BLUE
+Value 9 : Multicolor LED - GRN + BLUE
+Value 10: Multicolor LED -
+                     RED + GREEN + BLUE
+
+
+Value 11 - 65535 : unused
+ * 
+ * */
